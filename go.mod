@@ -1,4 +1,4 @@
-module github.com/jeremyd/gvengine
+module github.com/Pretty-Good-Freedom-Tech/gvengine
 
 go 1.23.0
 

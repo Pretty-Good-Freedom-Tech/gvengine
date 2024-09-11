@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"strings"
@@ -69,7 +70,9 @@ type RelayStatus struct {
 
 var TheLog *log.Logger
 var DB *gorm.DB
-var pubkey = "7cc328a08ddb2afdf9f9be77beff4c83489ff979721827d628a542f32a247c0e"
+
+// THE NOSTR PUBKEY TO BASE CALCULATIONS OFF:
+// var pubkey = "HEXPUBKEY"
 var nostrSubs []*nostr.Subscription
 var nostrRelays []*nostr.Relay
 
@@ -181,7 +184,7 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 		since = sinceDisco
 	}
 
-	//filterTimestamp := nostr.Timestamp(since.Unix())
+	filterTimestamp := nostr.Timestamp(since.Unix())
 
 	// BATCH filters into chunks of 1000 per filter.
 	var hop2Filters []nostr.Filter
@@ -202,7 +205,7 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 					Kinds:   []int{3, 0},
 					Limit:   1000,
 					Authors: authorPubkeys,
-					//Since:   &filterTimestamp,
+					Since:   &filterTimestamp,
 				})
 				TheLog.Printf("adding chunk subscription for %d:%d", begin, end)
 				lastCount = counter
@@ -225,7 +228,7 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 				Kinds:   []int{3, 0},
 				Limit:   1000,
 				Authors: authorPubkeys,
-				//Since:   &filterTimestamp,
+				Since:   &filterTimestamp,
 			})
 		}
 	}
@@ -439,18 +442,110 @@ func calculateWot(pubkey string) {
 
 		// Influence score notes::
 		// iterate over allHop, and create the scores!
-		/*
-			dunbarNumber := 100.0
-			attenuationFactor := 80 / 100
-			rigor := 50.0
-			defaultUserScore := 0.0
-			defaultUserConfidence := 0.0
-			followInterpretationScore := 100 / 100
-			followInterpretationConfidence := 5 / 100
-			muteInterpretationScore := 0.0 / 100
-			muteInterpretationConfidence := 10.0 / 100
-		*/
-		// TODO: Rest of Influence prototyping ..
+		//dunbarNumber := 100.0
+		attenuationFactor := 80.0 / 100.0
+		rigor := 25.0 / 100.0
+		defaultUserScore := 0.00     // / 100
+		defaultUserConfidence := 0.0 // / 100
+		followInterpretationScore := 100.0 / 100.0
+		followInterpretationConfidence := 5.0 / 100.0
+
+		//			muteInterpretationScore := 0.0 / 100
+		//			muteInterpretationConfidence := 10.0 / 100
+
+		infScores := make(map[string]float64)
+		avgScores := make(map[string]float64)
+		certaintyScores := make(map[string]float64)
+		inputScores := make(map[string]float64)
+
+		// initialize scores
+		// somethings wrong here, all the initial scores are zero?
+
+		// allHop for influence score * could be every pubkey in the DB.
+
+		for p, _ := range allHop {
+			// convert input to certainty
+			rigority := -math.Log(rigor)
+			fooB := -defaultUserConfidence * rigority
+			fooA := math.Exp(fooB)
+			TheLog.Printf("fooA was %f", fooA)
+			certainty := 1 - fooA
+			TheLog.Printf("certainty for %s was %f", p, certainty)
+			certaintyScores[p] = certainty
+			avgScores[p] = defaultUserScore
+			inputScores[p] = defaultUserConfidence
+			infScores[p] = certainty * defaultUserScore
+			TheLog.Printf("initial score for %s was %f", p, infScores[p])
+		}
+
+		// initialize my score
+		infScores[pubkey] = 1.0
+		avgScores[pubkey] = 1.0
+		inputScores[pubkey] = 9999
+		certaintyScores[pubkey] = 1.0
+		// make sure YOUR score never gets overwritten ^^^
+
+		// add mypubkey to allHops ? nah doesn't matter
+		allHop[pubkey] = person
+
+		// cycle scores
+		for i := 0; i < 8; i++ {
+			for pkRatee, _ := range allHop {
+				if pkRatee != pubkey {
+					sumOfWeights := 0.0
+					sumOfProducts := 0.0
+					// unused?
+					//sumOfWeightsDirectRatings := 0.0
+
+					var thisHopFollowers []string
+					DB.Table("metadata_follows").Select("metadata_pubkey_hex").Where("follow_pubkey_hex = ?", pkRatee).Scan(&thisHopFollowers)
+					//TheLog.Printf("Found %d follows for %s", len(thisHopFollowers), pkRatee)
+
+					for _, pkRater := range thisHopFollowers {
+						if pkRater != pkRatee {
+							rating := float64(followInterpretationScore)
+							weight := float64(attenuationFactor) * infScores[pkRater] * float64(followInterpretationConfidence)
+							if pkRater == pubkey {
+								// no attenuationFactor
+								weight = infScores[pkRater] * float64(followInterpretationConfidence)
+							}
+
+							product := weight * rating
+							sumOfWeights += float64(weight)
+							sumOfProducts += float64(product)
+						}
+					}
+
+					// mutes: todo
+
+					if sumOfWeights > 0 {
+						TheLog.Printf("sumofWeights was %f", sumOfWeights)
+						average := (sumOfProducts / sumOfWeights)
+						input := sumOfWeights
+
+						// convert input to certainty
+						rigority := -math.Log(rigor)
+						fooB := -input * rigority
+						fooA := math.Exp(fooB)
+						certainty := 1 - fooA
+						influence := average * certainty
+						infScores[pkRatee] = float64(influence)
+						avgScores[pkRatee] = average
+						certaintyScores[pkRatee] = certainty
+						inputScores[pkRatee] = input
+					}
+
+				}
+			}
+			TheLog.Printf("calculated influence cycle %d", i)
+		}
+
+		for p, s := range infScores {
+			if s > 0 {
+				TheLog.Printf("Influence score for %s: %f", p, s)
+			}
+		}
+		TheLog.Printf("Calculated %d total influence scores", len(infScores))
 
 		// wot scores
 		wotScores := make(map[string]int)
@@ -487,20 +582,11 @@ func calculateWot(pubkey string) {
 				Score:          s,
 				PubkeyHex:      p,
 			})
-			/*
-				scores = append(scores, WotScore{
-					MetadataPubkey: person.PubkeyHex,
-					Score:          s,
-					PubkeyHex:      p,
-				})
-			*/
-
-			//TheLog.Printf("score for %s was %d\n", p, s)
 		}
 
 		// deletes all associations
-
-		// batch this update or it will error with "too many prepared statements"
+		// FOR REFERENCE HOW NOT TO UPDATE ASSOCIATIONS RESULTS IN:
+		// "too many prepared statements" even with batching
 		/*
 			counter := 0
 			lastCount := 0
@@ -532,7 +618,7 @@ func calculateWot(pubkey string) {
 
 		// todo: cleanup leftover scores that have left the wot
 
-		TheLog.Printf("total number scored: %d, %d", len(wotScores))
+		//TheLog.Printf("total number scored: %d, %d", len(wotScores))
 		TheLog.Printf("pubkey %s, follows: %d, followers: %d", person.PubkeyHex, followsCount, followersCount)
 	}
 }
@@ -579,7 +665,7 @@ func main() {
 		doRelay(DB, CTX, url)
 	}
 
-	//calculateWot(pubkey)
+	calculateWot(pubkey)
 
 	select {}
 }
