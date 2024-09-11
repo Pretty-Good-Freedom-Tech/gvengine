@@ -3,6 +3,7 @@ module github.com/jeremyd/gvengine
 go 1.23.0
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/nbd-wtf/go-nostr v0.35.0
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
@@ -23,6 +24,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.0.2 // indirect
+	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/tidwall/gjson v1.14.4 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect

@@ -14,6 +14,7 @@ import (
 
 	//"gorm.io/driver/sqlite"
 
+	"github.com/google/uuid"
 	"github.com/nbd-wtf/go-nostr"
 	"github.com/nbd-wtf/go-nostr/nip19"
 	"gorm.io/driver/mysql"
@@ -41,6 +42,20 @@ type Metadata struct {
 	MetadataUpdatedAt time.Time   `gorm:"default:current_timestamp(3)"`
 	Follows           []*Metadata `gorm:"many2many:metadata_follows"`
 	RawJsonContent    string      `gorm:"type:longtext;size:512000"`
+	WotScores         []WotScore  `gorm:"foreignKey:MetadataPubkey;references:PubkeyHex"`
+}
+
+type WotScore struct {
+	gorm.Model
+	ID             uuid.UUID `gorm:"type:char(36);primary_key"`
+	MetadataPubkey string    `gorm:"size:65"`
+	PubkeyHex      string    `gorm:"size:65"`
+	Score          int
+}
+
+func (m *WotScore) BeforeCreate(tx *gorm.DB) error {
+	m.ID = uuid.New()
+	return nil
 }
 
 type RelayStatus struct {
@@ -166,7 +181,7 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 		since = sinceDisco
 	}
 
-	filterTimestamp := nostr.Timestamp(since.Unix())
+	//filterTimestamp := nostr.Timestamp(since.Unix())
 
 	// BATCH filters into chunks of 1000 per filter.
 	var hop2Filters []nostr.Filter
@@ -184,10 +199,10 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 				}
 
 				hop2Filters = append(hop2Filters, nostr.Filter{
-					Kinds:   []int{3},
+					Kinds:   []int{3, 0},
 					Limit:   1000,
 					Authors: authorPubkeys,
-					Since:   &filterTimestamp,
+					//Since:   &filterTimestamp,
 				})
 				TheLog.Printf("adding chunk subscription for %d:%d", begin, end)
 				lastCount = counter
@@ -207,10 +222,10 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 			TheLog.Printf("adding leftover chunk subscription for %d:%d", lastCount, end)
 
 			hop2Filters = append(hop2Filters, nostr.Filter{
-				Kinds:   []int{3},
+				Kinds:   []int{3, 0},
 				Limit:   1000,
 				Authors: authorPubkeys,
-				Since:   &filterTimestamp,
+				//Since:   &filterTimestamp,
 			})
 		}
 	}
@@ -400,7 +415,8 @@ func calculateWot(pubkey string) {
 	DB.Table("metadata_follows").Where("follow_pubkey_hex = ?", pubkey).Count(&followersCount)
 	DB.Table("metadata_follows").Where("metadata_pubkey_hex = ?", pubkey).Count(&followsCount)
 
-	person := Metadata{PubkeyHex: pubkey}
+	var person Metadata
+	DB.FirstOrInit(&person, Metadata{PubkeyHex: pubkey})
 	var follows []Metadata
 	assocError := DB.Model(&person).Association("Follows").Find(&follows)
 	if assocError == nil {
@@ -419,6 +435,7 @@ func calculateWot(pubkey string) {
 			}
 
 		}
+		TheLog.Printf("hop1 follows was: %d", len(allHop))
 
 		// Influence score notes::
 		// iterate over allHop, and create the scores!
@@ -433,16 +450,18 @@ func calculateWot(pubkey string) {
 			muteInterpretationScore := 0.0 / 100
 			muteInterpretationConfidence := 10.0 / 100
 		*/
+		// TODO: Rest of Influence prototyping ..
 
 		// wot scores
 		wotScores := make(map[string]int)
 
-		for pubkey, person := range allHop {
-			var thisHopFollows []Metadata
-			DB.Model(&person).Association("Follows").Find(&thisHopFollows)
+		TheLog.Printf("calculating scores .... please wait \n")
+		for pk, _ := range allHop {
+			//var thisHopFollows []Metadata
+			//DB.Model(&person).Association("Follows").Find(&thisHopFollows)
 
 			var thisHopFollowers []string
-			DB.Table("metadata_follows").Select("metadata_pubkey_hex").Where("follow_pubkey_hex = ?", pubkey).Scan(&thisHopFollowers)
+			DB.Table("metadata_follows").Select("metadata_pubkey_hex").Where("follow_pubkey_hex = ?", pk).Scan(&thisHopFollowers)
 
 			intersection := make(map[string]bool)
 			// intersection
@@ -454,15 +473,67 @@ func calculateWot(pubkey string) {
 				}
 			}
 
-			wotScores[pubkey] = len(intersection)
+			wotScores[pk] = len(intersection)
 		}
 
+		//DB.Model(&person).Association("WotScores").Clear()
+
+		DB.Unscoped().Model(&person).Association("WotScores").Unscoped().Clear()
+
+		TheLog.Printf("saving scores .... please wait \n")
 		for p, s := range wotScores {
-			TheLog.Printf("score for %s was %d\n", p, s)
+			DB.Model(&WotScore{}).Create(&WotScore{
+				MetadataPubkey: person.PubkeyHex,
+				Score:          s,
+				PubkeyHex:      p,
+			})
+			/*
+				scores = append(scores, WotScore{
+					MetadataPubkey: person.PubkeyHex,
+					Score:          s,
+					PubkeyHex:      p,
+				})
+			*/
+
+			//TheLog.Printf("score for %s was %d\n", p, s)
 		}
 
-		TheLog.Printf("total number scored: %d", len(wotScores))
-		TheLog.Printf("follows: %d, followers: %d", followsCount, followersCount)
+		// deletes all associations
+
+		// batch this update or it will error with "too many prepared statements"
+		/*
+			counter := 0
+			lastCount := 0
+			if len(scores) > 500 {
+				for _ = range scores {
+					if counter > 0 && counter%500 == 0 {
+						begin := counter - 500
+						end := counter
+						batch := scores[begin:end]
+						DB.Model(&person).Association("WotScores").Append(&batch)
+						TheLog.Printf("batching batch: %d, %d", begin, end)
+						lastCount = counter
+						time.Sleep(time.Second * 1)
+					}
+					counter += 1
+				}
+				if lastCount != counter+1 {
+					begin := lastCount
+					end := len(scores) - 1
+					remainingBatch := scores[begin:end]
+					DB.Model(&person).Association("WotScores").Append(&remainingBatch)
+					TheLog.Printf("remaining batch: %d, %d", begin, end)
+				}
+
+			} else {
+				DB.Model(&person).Association("WotScores").Append(&scores)
+			}
+		*/
+
+		// todo: cleanup leftover scores that have left the wot
+
+		TheLog.Printf("total number scored: %d, %d", len(wotScores))
+		TheLog.Printf("pubkey %s, follows: %d, followers: %d", person.PubkeyHex, followsCount, followersCount)
 	}
 }
 
@@ -479,10 +550,12 @@ func main() {
 
 	migrateErr := DB.AutoMigrate(&Metadata{})
 	migrateErr1 := DB.AutoMigrate(&RelayStatus{})
+	migrateErr2 := DB.AutoMigrate(&WotScore{})
 
 	migrateErrs := []error{
 		migrateErr,
 		migrateErr1,
+		migrateErr2,
 	}
 
 	for i, err := range migrateErrs {
