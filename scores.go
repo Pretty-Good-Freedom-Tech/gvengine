@@ -60,14 +60,14 @@ func calculateWot(pubkey string) {
 			rigority := -math.Log(rigor)
 			fooB := -defaultUserConfidence * rigority
 			fooA := math.Exp(fooB)
-			TheLog.Printf("fooA was %f", fooA)
+			//TheLog.Printf("fooA was %f", fooA)
 			certainty := 1 - fooA
-			TheLog.Printf("certainty for %s was %f", p, certainty)
+			//TheLog.Printf("certainty for %s was %f", p, certainty)
 			certaintyScores[p] = certainty
 			avgScores[p] = defaultUserScore
 			inputScores[p] = defaultUserConfidence
 			infScores[p] = certainty * defaultUserScore
-			TheLog.Printf("initial score for %s was %f", p, infScores[p])
+			//TheLog.Printf("initial score for %s was %f", p, infScores[p])
 		}
 
 		// initialize my score
@@ -111,7 +111,6 @@ func calculateWot(pubkey string) {
 					// mutes: todo
 
 					if sumOfWeights > 0 {
-						TheLog.Printf("sumofWeights was %f", sumOfWeights)
 						average := (sumOfProducts / sumOfWeights)
 						input := sumOfWeights
 
@@ -129,15 +128,24 @@ func calculateWot(pubkey string) {
 
 				}
 			}
-			TheLog.Printf("calculated influence cycle %d", i)
+			TheLog.Printf("calculated influence cycle %d\n", i)
 		}
 
+		TheLog.Printf("Calculated %d total influence scores\n", len(infScores))
+
+		DB.Unscoped().Model(&person).Association("GvScores").Unscoped().Clear()
+		TheLog.Printf("saving influence scores..")
 		for p, s := range infScores {
 			if s > 0 {
-				TheLog.Printf("Influence score for %s: %f", p, s)
+				DB.Model(&GvScore{}).Create(&GvScore{
+					MetadataPubkey: person.PubkeyHex,
+					PubkeyHex:      p,
+					Score:          s,
+				})
+				//TheLog.Printf("Influence score for %s: %f", p, s)
 			}
 		}
-		TheLog.Printf("Calculated %d total influence scores", len(infScores))
+		TheLog.Printf("done.\n")
 
 		// wot scores
 		wotScores := make(map[string]int)

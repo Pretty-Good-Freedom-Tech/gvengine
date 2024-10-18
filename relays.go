@@ -27,7 +27,7 @@ func isHex(s string) bool {
 	return true
 }
 
-func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
+func doRelay(db *gorm.DB, ctx context.Context, url string, pubkey string) bool {
 	relay, err := nostr.RelayConnect(ctx, url)
 	if err != nil {
 		TheLog.Printf("failed initial connection to relay: %s, %s; skipping relay", url, err)
@@ -131,6 +131,17 @@ func doRelay(db *gorm.DB, ctx context.Context, url string) bool {
 				Since:   &filterTimestamp,
 			})
 		}
+	} else {
+		var authorPubkeys []string
+		for _, a := range thisHopFollows {
+			authorPubkeys = append(authorPubkeys, a.PubkeyHex)
+		}
+		hop2Filters = append(hop2Filters, nostr.Filter{
+			Kinds:   []int{3, 0},
+			Limit:   1000,
+			Authors: authorPubkeys,
+			Since:   &filterTimestamp,
+		})
 	}
 
 	hop2Sub, _ := relay.Subscribe(ctx, hop2Filters)
@@ -153,6 +164,8 @@ func processSub(sub *nostr.Subscription, relay *nostr.Relay) {
 		<-sub.EndOfStoredEvents
 		TheLog.Printf("got EOSE from %s\n", relay.URL)
 		UpdateOrCreateRelayStatus(DB, relay.URL, "EOSE")
+		sub.Unsub()
+		sub.Close()
 	}()
 
 	c := make(chan os.Signal)

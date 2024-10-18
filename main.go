@@ -8,9 +8,6 @@ import (
 
 var AppInfo = "gvengine v0.0.1"
 
-// THE NOSTR PUBKEY TO BASE CALCULATIONS OFF:
-var pubkey = "7cc328a08ddb2afdf9f9be77beff4c83489ff979721827d628a542f32a247c0e"
-
 func main() {
 
 	/*
@@ -25,11 +22,13 @@ func main() {
 	migrateErr := DB.AutoMigrate(&Metadata{})
 	migrateErr1 := DB.AutoMigrate(&RelayStatus{})
 	migrateErr2 := DB.AutoMigrate(&WotScore{})
+	migrateErr3 := DB.AutoMigrate(&GvScore{})
 
 	migrateErrs := []error{
 		migrateErr,
 		migrateErr1,
 		migrateErr2,
+		migrateErr3,
 	}
 
 	for i, err := range migrateErrs {
@@ -49,11 +48,16 @@ func main() {
 		"wss://nos.lol",
 	}
 
+	var p Metadata
+
+	// todo, select various members and loop over em etc..
+	DB.Where("member = ?", true).First(&p)
+
 	for _, url := range relayUrls {
-		doRelay(DB, CTX, url)
+		doRelay(DB, CTX, url, p.PubkeyHex)
 	}
 
-	calculateWot(pubkey)
+	calculateWot(p.PubkeyHex)
 
 	select {}
 }

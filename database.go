@@ -31,6 +31,8 @@ type Metadata struct {
 	Follows           []*Metadata `gorm:"many2many:metadata_follows"`
 	RawJsonContent    string      `gorm:"type:longtext;size:512000"`
 	WotScores         []WotScore  `gorm:"foreignKey:MetadataPubkey;references:PubkeyHex"`
+	GvScores          []GvScore   `gorm:"foreignKey:MetadataPubkey;references:PubkeyHex"`
+	Member            bool        `gorm:"default:false"`
 }
 
 type WotScore struct {
@@ -41,7 +43,20 @@ type WotScore struct {
 	Score          int
 }
 
+type GvScore struct {
+	gorm.Model
+	ID             uuid.UUID `gorm:"type:char(36);primary_key"`
+	MetadataPubkey string    `gorm:"size:65"`
+	PubkeyHex      string    `gorm:"size:65"`
+	Score          float64
+}
+
 func (m *WotScore) BeforeCreate(tx *gorm.DB) error {
+	m.ID = uuid.New()
+	return nil
+}
+
+func (m *GvScore) BeforeCreate(tx *gorm.DB) error {
 	m.ID = uuid.New()
 	return nil
 }
@@ -103,8 +118,11 @@ func UpdateOrCreateRelayStatus(db *gorm.DB, url string, status string) {
 	} else {
 		r = RelayStatus{Url: url, Status: status}
 	}
-	rowsUpdated := db.Model(&r).Where("url = ?", url).Updates(&r).RowsAffected
-	if rowsUpdated == 0 {
+	var s RelayStatus
+	err := db.Model(&s).Where("url = ?", url).First(&s).Error
+	if err == nil {
+		db.Model(&r).Where("url = ?", url).Updates(&r)
+	} else {
 		db.Create(&r)
 	}
 }
