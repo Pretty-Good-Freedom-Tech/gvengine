@@ -36,7 +36,6 @@ type Metadata struct {
 }
 
 type WotScore struct {
-	gorm.Model
 	ID             uuid.UUID `gorm:"type:char(36);primary_key"`
 	MetadataPubkey string    `gorm:"size:65"`
 	PubkeyHex      string    `gorm:"size:65"`
@@ -44,7 +43,6 @@ type WotScore struct {
 }
 
 type GvScore struct {
-	gorm.Model
 	ID             uuid.UUID `gorm:"type:char(36);primary_key"`
 	MetadataPubkey string    `gorm:"size:65"`
 	PubkeyHex      string    `gorm:"size:65"`
@@ -61,13 +59,20 @@ func (m *GvScore) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+func (m *RelayStatus) BeforeCreate(tx *gorm.DB) error {
+	m.ID = uuid.New()
+	return nil
+}
+
 type RelayStatus struct {
-	Url       string    `gorm:"primaryKey;size:512"`
+	ID        uuid.UUID `gorm:"type:char(36);primary_key"`
+	Url       string    `gorm:"size:512"`
 	Status    string    `gorm:"size:512"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"`
 	// change these defaults to something closer to zero
-	LastEOSE  time.Time `gorm:"default:current_timestamp(3)"`
-	LastDisco time.Time `gorm:"default:current_timestamp(3)"`
+	LastEOSE       time.Time `gorm:"default:1970-01-01 00:00:00"`
+	LastDisco      time.Time `gorm:"default:1970-01-01 00:00:00"`
+	MetadataPubkey string    `gorm:"size:65"`
 }
 
 var TheLog *log.Logger
@@ -109,20 +114,29 @@ func GetGormConnection() *gorm.DB {
 	return db
 }
 
-func UpdateOrCreateRelayStatus(db *gorm.DB, url string, status string) {
-	var r RelayStatus
-	if status == "EOSE" {
-		r = RelayStatus{Url: url, Status: status, LastEOSE: time.Now()}
-	} else if strings.HasPrefix(status, "connection error") {
-		r = RelayStatus{Url: url, Status: status, LastDisco: time.Now()}
+func UpdateOrCreateRelayStatus(db *gorm.DB, url string, status string, pubkey string) {
+	if pubkey == "" {
+		var r []RelayStatus
+		DB.Where("url = ?", url).Find(&r)
+
+		for _, x := range r {
+			UpdateOrCreateRelayStatus(DB, url, status, x.MetadataPubkey)
+		}
 	} else {
-		r = RelayStatus{Url: url, Status: status}
-	}
-	var s RelayStatus
-	err := db.Model(&s).Where("url = ?", url).First(&s).Error
-	if err == nil {
-		db.Model(&r).Where("url = ?", url).Updates(&r)
-	} else {
-		db.Create(&r)
+		var r RelayStatus
+		if status == "connection established: EOSE" {
+			r = RelayStatus{Url: url, Status: status, LastEOSE: time.Now(), MetadataPubkey: pubkey}
+		} else if strings.HasPrefix(status, "connection error") {
+			r = RelayStatus{Url: url, Status: status, LastDisco: time.Now(), MetadataPubkey: pubkey}
+		} else {
+			r = RelayStatus{Url: url, Status: status, MetadataPubkey: pubkey}
+		}
+		var s RelayStatus
+		err := db.Model(&s).Where("url = ? and metadata_pubkey = ?", url, pubkey).First(&s).Error
+		if err == nil {
+			db.Model(&r).Where("url = ? and metadata_pubkey = ?", url, pubkey).Updates(&r)
+		} else {
+			db.Create(&r)
+		}
 	}
 }

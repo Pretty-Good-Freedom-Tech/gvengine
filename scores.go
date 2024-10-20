@@ -30,7 +30,7 @@ func calculateWot(pubkey string) {
 			}
 
 		}
-		TheLog.Printf("hop1 follows was: %d", len(allHop))
+		TheLog.Printf("hop1 follows for %s was: %d", pubkey, len(allHop))
 
 		// Influence score notes::
 		// iterate over allHop, and create the scores!
@@ -51,10 +51,6 @@ func calculateWot(pubkey string) {
 		inputScores := make(map[string]float64)
 
 		// initialize scores
-		// somethings wrong here, all the initial scores are zero?
-
-		// allHop for influence score * could be every pubkey in the DB.
-
 		for p, _ := range allHop {
 			// convert input to certainty
 			rigority := -math.Log(rigor)
@@ -216,9 +212,6 @@ func calculateWot(pubkey string) {
 			}
 		*/
 
-		// todo: cleanup leftover scores that have left the wot
-
-		//TheLog.Printf("total number scored: %d, %d", len(wotScores))
-		TheLog.Printf("pubkey %s, follows: %d, followers: %d", person.PubkeyHex, followsCount, followersCount)
+		TheLog.Printf("finished processing pubkey %s, follows: %d, followers: %d", person.PubkeyHex, followsCount, followersCount)
 	}
 }
