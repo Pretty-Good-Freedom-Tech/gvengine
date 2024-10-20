@@ -4,7 +4,10 @@ go 1.23.0
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/handlers v1.5.2
+	github.com/gorilla/mux v1.8.1
 	github.com/nbd-wtf/go-nostr v0.35.0
+	github.com/rs/cors v1.11.1
 	gorm.io/driver/mysql v1.5.7
 	gorm.io/gorm v1.25.12
 )
@@ -15,11 +18,11 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.0.1 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.2.0 // indirect
+	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/go-sql-driver/mysql v1.7.0 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.2.0 // indirect
-	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/josharian/intern v1.0.0 // indirect

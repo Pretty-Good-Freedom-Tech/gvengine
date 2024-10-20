@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 )
 
@@ -66,13 +67,18 @@ func main() {
 	r.HandleFunc("/api/members/{key}/followers", FollowersHandler)
 	http.Handle("/", r)
 
+	// Where ORIGIN_ALLOWED is like `scheme://dns[:port]`, or `*` (insecure)
+	headersOk := handlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type"})
+	originsOk := handlers.AllowedOrigins([]string{"*"})
+	methodsOk := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS"})
+
 	srv := &http.Server{
-		Addr: "127.0.0.1:8080",
+		Addr: "0.0.0.0:8080",
 		// Good practice to set timeouts to avoid Slowloris attacks.
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
-		Handler:      r, // Pass our instance of gorilla/mux in.
+		Handler:      handlers.CORS(originsOk, headersOk, methodsOk)(r),
 	}
 
 	go func() {
